@@ -27,6 +27,8 @@ fi
 
 mongo_common_args="-f $MONGODB_CONFIG_PATH"
 
+# Attention: setup_ssl may modify value of mongo_common_args!
+setup_ssl
 setup_default_datadir
 
 # Must bring up MongoDB on localhost only until it has an admin password set.

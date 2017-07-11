@@ -19,6 +19,22 @@ MONGODB_KEYFILE_PATH="${HOME}/keyfile"
 readonly MAX_ATTEMPTS=60
 readonly SLEEP_TIME=1
 
+# mongo_cmd returns the command for connecting to the mongo server, including
+# any SSL options
+function mongo_cmd() {
+  local mongo_cmd="mongo"
+  if [[ "${MONGODB_SSL_MODE:-}" == "requireSSL" || "${MONGODB_SSL_MODE:-}" == "preferSSL" ]]; then
+    mongo_cmd+=" --ssl --sslPEMKeyFile /var/lib/mongodb/ssl/mongodb.pem --sslAllowInvalidCertificates --sslAllowInvalidHostnames"
+
+    if [[ -n "${MONGODB_SSL_CA_FILE-}" ]]; then
+      mongo_cmd+=" --sslCAFile /var/lib/mongodb/ssl/cacert.pem"
+    fi
+  fi
+  echo -n $mongo_cmd
+}
+# Constant used for connecting to the mongo server
+MONGO_CMD="$(mongo_cmd)"
+
 # wait_for_mongo_up waits until the mongo server accepts incomming connections
 function wait_for_mongo_up() {
   _wait_for_mongo 1 "$@"
@@ -39,7 +55,7 @@ function _wait_for_mongo() {
     message="down"
   fi
 
-  local mongo_cmd="mongo admin --host ${2:-localhost} "
+  local mongo_cmd="${MONGO_CMD} admin --host ${2:-localhost}"
 
   local i
   for i in $(seq $MAX_ATTEMPTS); do
@@ -85,7 +101,7 @@ function mongo_create_admin() {
 
   # Set admin password
   local js_command="db.createUser({user: 'admin', pwd: '${MONGODB_ADMIN_PASSWORD}', roles: ['dbAdminAnyDatabase', 'userAdminAnyDatabase' , 'readWriteAnyDatabase','clusterAdmin' ]});"
-  if ! mongo admin ${1:-} --host ${2:-"localhost"} --eval "${js_command}"; then
+  if ! ${MONGO_CMD} admin ${1:-} --host ${2:-"localhost"} --eval "${js_command}"; then
     echo >&2 "=> Failed to create MongoDB admin user."
     exit 1
   fi
@@ -112,7 +128,7 @@ function mongo_create_user() {
 
   # Create database user
   local js_command="db.getSiblingDB('${MONGODB_DATABASE}').createUser({user: '${MONGODB_USER}', pwd: '${MONGODB_PASSWORD}', roles: [ 'readWrite' ]});"
-  if ! mongo admin ${1:-} --host ${2:-"localhost"} --eval "${js_command}"; then
+  if ! ${MONGO_CMD} admin ${1:-} --host ${2:-"localhost"} --eval "${js_command}"; then
     echo >&2 "=> Failed to create MongoDB user: ${MONGODB_USER}"
     exit 1
   fi
@@ -122,7 +138,7 @@ function mongo_create_user() {
 function mongo_reset_user() {
   if [[ -n "${MONGODB_USER:-}" && -n "${MONGODB_PASSWORD:-}" && -n "${MONGODB_DATABASE:-}" ]]; then
     local js_command="db.changeUserPassword('${MONGODB_USER}', '${MONGODB_PASSWORD}')"
-    if ! mongo ${MONGODB_DATABASE} --eval "${js_command}"; then
+    if ! ${MONGO_CMD} ${MONGODB_DATABASE} --eval "${js_command}"; then
       echo >&2 "=> Failed to reset password of MongoDB user: ${MONGODB_USER}"
       exit 1
     fi
@@ -133,7 +149,7 @@ function mongo_reset_user() {
 function mongo_reset_admin() {
   if [[ -n "${MONGODB_ADMIN_PASSWORD:-}" ]]; then
     local js_command="db.changeUserPassword('admin', '${MONGODB_ADMIN_PASSWORD}')"
-    if ! mongo admin --eval "${js_command}"; then
+    if ! ${MONGO_CMD} admin --eval "${js_command}"; then
       echo >&2 "=> Failed to reset password of MongoDB user: ${MONGODB_USER}"
       exit 1
     fi
@@ -164,6 +180,32 @@ function setup_keyfile() {
   echo ${MONGODB_KEYFILE_VALUE} > ${MONGODB_KEYFILE_PATH}
   chmod 0600 ${MONGODB_KEYFILE_PATH}
   mongo_common_args+=" --keyFile ${MONGODB_KEYFILE_PATH}"
+}
+
+function setup_ssl() {
+  if [ -z "${MONGODB_SSL_PEM_KEY_FILE:-}" ] && [ -s "/var/lib/mongodb/ssl/mongodb.pem" ]; then
+    export MONGODB_SSL_PEM_KEY_FILE="/var/lib/mongodb/ssl/mongodb.pem"
+  fi
+  if [ -z "${MONGODB_SSL_CA_FILE:-}" ] && [ -s "/var/lib/mongodb/ssl/cacert.pem" ]; then
+    export MONGODB_SSL_CA_FILE="/var/lib/mongodb/ssl/cacert.pem"
+  fi
+  local mongo_ssl_args=""
+  if [ -n "${MONGODB_SSL_PEM_KEY_FILE-}" ]; then
+    mongo_ssl_args+=" --sslPEMKeyFile ${MONGODB_SSL_PEM_KEY_FILE}"
+  fi
+  if [ -n "${MONGODB_SSL_CA_FILE-}" ]; then
+    mongo_ssl_args+=" --sslCAFile ${MONGODB_SSL_CA_FILE}"
+  fi
+  if [ -n "${MONGODB_SSL_MODE-}" ]; then
+    mongo_ssl_args+=" --sslMode ${MONGODB_SSL_MODE}"
+  fi
+  if [ -n "${MONGODB_SSL_PEM_KEY_PASSWORD-}" ]; then
+    mongo_ssl_args+=" --sslPEMKeyPassword ${MONGODB_SSL_PEM_KEY_PASSWORD}"
+  fi
+  if [ -n "${MONGODB_SSL_ADDITIONAL_OPTIONS-}" ]; then
+    mongo_ssl_args+=" ${MONGODB_SSL_ADDITIONAL_OPTIONS}"
+  fi
+  mongo_common_args+=" $mongo_ssl_args"
 }
 
 # setup_default_datadir checks permissions of mounded directory into default

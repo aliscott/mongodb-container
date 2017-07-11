@@ -50,7 +50,7 @@ parameters:
   - name: MONGODB_IMAGE
     displayName: "MongoDB Docker Image"
     description: "A reference to a supported MongoDB Docker image."
-    value: "centos/mongodb-32-centos7"
+    value: "openshift/mongodb-32-centos7"
     required: true
 
   - name: MONGODB_SERVICE_NAME
@@ -70,7 +70,70 @@ parameters:
     description: "Maximum amount of memory the container can use."
     value: "512Mi"
 
+  - name: MONGODB_SSL_MODE
+    displayName: "MongoDB SSL Mode"
+    description: |-
+      "The MongoDB SSL mode. This can be requireSSL, allowSSL or preferSSL.
+      Leave this blank if you do not want to enable SSL on the server. This is
+      only supported for MongoDB 3.2"
+
+  - name: MONGODB_SSL_PEM_KEY_FILE
+    displayName: "MongoDB SSL PEM Key File"
+    description: |-
+      "The MongoDB SSL certificate and key file contents with new lines
+      included. You can ensure this is inputted correctly by clicking on the
+      arrows to expand the below text area and ensuring you enter a new line at
+      the end of the content. Leave this blank if you do not want to enable SSL
+      on the server."
+
+  - name: MONGODB_SSL_CA_FILE
+    displayName: "MongoDB SSL CA File"
+    description: |-
+      "The MongoDB SSL CA certificate file contents with new lines included.
+      This is not required for SSL, without it you will need to ensure that any
+      clients connecting over SSL use the --sslAllowInvalidCertificates option.
+      You can ensure this is inputted correctly by clicking on the arrows to
+      expand the below text area and ensuring you enter a new line at
+      the end of the content."
+
+  - name: MONGODB_SSL_PEM_KEY_PASSWORD
+    displayName: "MongoDB SSL PEM Key Password"
+    description: |-
+      "Add your MongoDB SSL key password if your SSL key is protected
+      with a password. This is not required for SSL keys that are not
+      protected."
+
+  - name: MONGODB_SSL_ADDITIONAL_OPTIONS
+    displayName: "MongoDB SSL Options"
+    description: "Any additional SSL option flags for MongoDB, e.g.
+      --sslAllowConnectionsWithoutCertificates and --sslDisabledProtocols"
+
 objects:
+  # A secret for storing the MongoDB authentication parameters
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: ${MONGODB_SERVICE_NAME}
+      annotations:
+        template.openshift.io/expose-username: "{.data['database-user']}"
+        template.openshift.io/expose-password: "{.data['database-password']}"
+        template.openshift.io/expose-admin_password: "{.data['database-admin-password']}"
+    stringData:
+      database-user: ${MONGODB_USER}D}
+      database-password: ${MONGODB_PASSWORD}
+      database-admin-password: ${MONGODB_ADMIN_PASSWOR
+      mongodb-keyfile-value: ${MONGODB_KEYFILE_VALUE}
+      mongodb-ssl-pem-key-password: ${MONGODB_SSL_PEM_KEY_PASSWORD}
+
+  # A secret for storing the MongoDB SSL certificates
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: ${MONGODB_SERVICE_NAME}-ssl
+    stringData:
+      mongodb.pem: ${MONGODB_SSL_PEM_KEY_FILE}
+      cacert.pem: ${MONGODB_SSL_CA_FILE}
+
   # A non-headless service which takes pod readiness into consideration
   - kind: Service
     apiVersion: v1
@@ -120,28 +183,52 @@ objects:
           containers:
             - name: mongo-container
               image: "${MONGODB_IMAGE}"
+              imagePullPolicy: Always
               ports:
                 - containerPort: 27017
               args:
                 - "run-mongod-pet"
               volumeMounts:
+                - name: mongo-ssl
+                  mountPath: "/var/lib/mongodb/ssl"
                 - name: mongo-data
                   mountPath: "/var/lib/mongodb/data"
               env:
                 - name: MONGODB_USER
-                  value: "${MONGODB_USER}"
+                  valueFrom:
+                    secretKeyRef:
+                      key: database-user
+                      name: ${MONGODB_SERVICE_NAME}
                 - name: MONGODB_PASSWORD
-                  value: "${MONGODB_PASSWORD}"
+                  valueFrom:
+                    secretKeyRef:
+                      key: database-password
+                      name: ${MONGODB_SERVICE_NAME}
                 - name: MONGODB_DATABASE
                   value: "${MONGODB_DATABASE}"
                 - name: MONGODB_ADMIN_PASSWORD
-                  value: "${MONGODB_ADMIN_PASSWORD}"
+                  valueFrom:
+                    secretKeyRef:
+                      key: database-admin-password
+                      name: ${MONGODB_SERVICE_NAME}
                 - name: MONGODB_REPLICA_NAME
                   value: "${MONGODB_REPLICA_NAME}"
                 - name: MONGODB_KEYFILE_VALUE
-                  value: "${MONGODB_KEYFILE_VALUE}"
+                  valueFrom:
+                    secretKeyRef:
+                      key: mongodb-keyfile-value
+                      name: ${MONGODB_SERVICE_NAME}
                 - name: MONGODB_SERVICE_NAME
                   value: "${MONGODB_SERVICE_NAME}-internal"
+                - name: MONGODB_SSL_MODE
+                  value: ${MONGODB_SSL_MODE}
+                - name: MONGODB_SSL_PEM_KEY_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: mongodb-ssl-pem-key-password
+                      name: ${MONGODB_SERVICE_NAME}
+                - name: MONGODB_SSL_ADDITIONAL_OPTIONS
+                  value: ${MONGODB_SSL_ADDITIONAL_OPTIONS}
               resources:
                 limits:
                   memory: "${MEMORY_LIMIT}"
@@ -150,6 +237,10 @@ objects:
                   command:
                     - stat
                     - /tmp/initialized
+          volumes:
+            - name: mongo-ssl
+              secret:
+                secretName: ${MONGODB_SERVICE_NAME}-ssl
       volumeClaimTemplates:
         - metadata:
             name: mongo-data
