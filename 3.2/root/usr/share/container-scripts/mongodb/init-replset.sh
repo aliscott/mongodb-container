@@ -62,7 +62,7 @@ function add_member() {
 info "Waiting for local MongoDB to accept connections  ..."
 wait_for_mongo_up &>/dev/null
 
-if [[ $(${MONGO_CMD} --eval 'db.isMaster().setName' --quiet) == "${MONGODB_REPLICA_NAME}" ]]; then
+if [[ $(${MONGO_CMD} --eval 'db.isMaster().setName' --quiet | tail -n 1) == "${MONGODB_REPLICA_NAME}" ]]; then
   info "Replica set '${MONGODB_REPLICA_NAME}' already exists, skipping initialization"
   >/tmp/initialized
   exit 0
