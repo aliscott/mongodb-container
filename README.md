@@ -21,6 +21,15 @@ CentOS versions currently supported are:
 * CentOS7
 
 
+Dependencies
+---------------------------------
+
+To build the images you must have go-md2man installed:
+```
+go get github.com/cpuguy83/go-md2man
+```
+
+
 Installation
 ---------------------------------
 Choose either the CentOS7 or RHEL7 based image:
