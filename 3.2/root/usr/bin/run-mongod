@@ -35,7 +35,7 @@ setup_default_datadir
 mongod $mongo_common_args --bind_ip 127.0.0.1 &
 wait_for_mongo_up
 js_command="db.system.users.count({'user':'admin', 'db':'admin'})"
-if [ "$(mongo admin --quiet --eval "$js_command")" == "1" ]; then
+if [ "$(${MONGO_CMD} admin --quiet --eval "$js_command" | tail -n 1)" == "1" ]; then
   echo "=> Admin user is already created. Resetting password ..."
   mongo_reset_admin
 else
@@ -43,7 +43,7 @@ else
 fi
 if [[ -v CREATE_USER ]]; then
   js_command="db.system.users.count({'user':'${MONGODB_USER}', 'db':'${MONGODB_DATABASE}'})"
-  if [ "$(mongo admin --quiet --eval "$js_command")" == "1" ]; then
+  if [ "$(${MONGO_CMD} admin --quiet --eval "$js_command" | tail -n 1)" == "1" ]; then
     echo "=> MONGODB_USER user is already created. Resetting password ..."
     mongo_reset_user
   else
